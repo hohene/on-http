@@ -267,9 +267,21 @@ esxcli system shutdown reboot -d 10 -r "Rebooting after first boot host configur
 %post --interpreter=busybox
 
 #notify the current progress
+#retry is to protect against intermittent post script hangs in os-install
 <% if( typeof progressMilestones !== 'undefined' && progressMilestones.postConfigUri ) { %>
-    # the url may contain query, the symbol '&' will mess the command line logic, so the whole url need be wrapped in quotation marks
-    wget "http://<%=server%>:<%=port%><%-progressMilestones.postConfigUri%>" || true
+    echo "RackHD POST script started" >> /vmfs/volumes/datastore1/rackhd-post.log
+    for retry in $(seq 1 5);
+    do
+        # the url may contain query, the symbol '&' will mess the command line logic, so the whole url need be wrapped in quotation marks
+        wget "http://<%=server%>:<%=port%><%-progressMilestones.postConfigUri%>"
+        if [ $? -eq 0 ]; then
+            echo "RackHD wget progress posted" >> /vmfs/volumes/datastore1/rackhd-post.log
+            break
+        else
+            echo "RackHD wget progress post failed" >> /vmfs/volumes/datastore1/rackhd-post.log
+            sleep 1
+        fi
+    done;
 <% } %>
 
 #disable firewall
@@ -279,4 +291,6 @@ BODY="{"
 BODY=$BODY"\"nodeId\": \"<%=nodeId%>\""
 BODY=$BODY"}"
 BODYLEN=$(echo -n ${BODY} | wc -c)
+echo "RackHD workflow POST success notification started" >> /vmfs/volumes/datastore1/rackhd-post.log
 echo -ne "POST /api/current/notification HTTP/1.0\r\nHost: <%=server%>\r\nContent-Type: application/json\r\nContent-Length: ${BODYLEN}\r\n\r\n${BODY}" | nc -i 3 <%=server%> <%=port%>
+echo "RackHD post script completed" >> /vmfs/volumes/datastore1/rackhd-post.log
